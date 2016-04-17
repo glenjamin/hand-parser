@@ -5,7 +5,9 @@
 (def conjv (fnil conj []))
 
 (declare lex-punctuation lex-keyword
-         lex-start-number lex-number lex-decimal-point lex-decimal
+         lex-start-number lex-number lex-zero
+            lex-decimal-point lex-decimal
+            lex-start-exponent lex-exponent-sign lex-exponent
          lex-start-string lex-string lex-escape)
 
 (defn lex-start [value ^Character chr]
@@ -56,14 +58,18 @@
 
 (defn lex-start-number [value ^Character chr]
   (cond (= \- chr) [lex-number :next [chr]]
-        (= \0 chr) [lex-decimal-point :next [chr]]
+        (= \0 chr) [lex-zero :next [chr]]
         (Character/isDigit chr) [lex-number :next [chr]]))
 
 (defn lex-number [value ^Character chr]
-  ; TODO: handle exponential format
   (cond (Character/isDigit chr) [lex-number :next (conj value chr)]
         (= \. chr) (lex-decimal-point value chr)
+        (#{\E \e} chr) (lex-start-exponent value chr)
         :else [lex-start :token-end (finish-number value)]))
+
+(defn lex-zero [value ^Character chr]
+  (cond (= \. chr) (lex-decimal-point value chr)
+        :else [lex-start :token-end [:number 0]]))
 
 (defn lex-decimal-point [value ^Character chr]
   (if (= \. chr)
@@ -71,6 +77,20 @@
 
 (defn lex-decimal [value ^Character chr]
   (cond (Character/isDigit chr) [lex-decimal :next (conj value chr)]
+        (#{\E \e} chr) (lex-start-exponent value chr)
+        :else [lex-start :token-end (finish-number value)]))
+
+(defn lex-start-exponent [value ^Character chr]
+  (if (#{\E \e} chr)
+    [lex-exponent-sign :next (conj value chr)]))
+
+(defn lex-exponent-sign [value ^Character chr]
+  (cond (= \- chr) [lex-exponent :next (conj value chr)]
+        (= \+ chr) [lex-exponent :next value]
+        :else (lex-exponent value chr)))
+
+(defn lex-exponent [value ^Character chr]
+  (cond (Character/isDigit chr) [lex-exponent :next (conj value chr)]
         :else [lex-start :token-end (finish-number value)]))
 
 (defn parse-json [])
