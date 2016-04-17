@@ -1,4 +1,4 @@
-(ns hand-parser
+(ns hand.parser
   (:require [clojure.java.io :as io])
   (:import [java.io Reader LineNumberReader]))
 
@@ -33,7 +33,12 @@
                (vswap! state assoc :lexer lexer)
                (case action
 
-                 :token ; -> emit token, re-consume current character
+                 :token ; emit token
+                 (do
+                   (vswap! state assoc :value nil)
+                   (rf acc value))
+
+                 :token-end ; emit token but re-use current character
                  (do
                    (vswap! state assoc :value nil)
                    (recur (rf acc value) chr))
@@ -54,8 +59,7 @@
          (let [{:keys [parser stack]} @state
                [action parser stack] (parser stack tok)]
            (if (nil? action)
-             (throw (ex-info "failed to parse" {:token tok :stack stack}))
-             ; (ensure-reduced (rf acc [:error tok]))
+             (ensure-reduced (rf acc [:error tok]))
              (do
                (vswap! state assoc :parser parser)
                (case action
@@ -71,79 +75,8 @@
 
                  :eof acc)))))))))
 
-(def conjv (fnil conj []))
-
-(defn lex-word [value ^Character chr]
-  (cond (Character/isLetter chr)
-        [lex-word :next (conjv value chr)]
-
-        :else
-        [lex-start :token [:word (apply str value)]]))
-
-(defn lex-number [value ^Character chr]
-  (cond (Character/isDigit chr)
-        [lex-number :next (conjv value chr)]
-
-        :else
-        (let [num (Integer/valueOf ^String (apply str value))]
-          [lex-start :token [:number num]])))
-
-(defn lex-divider [value ^Character chr]
-  (case chr
-    \-
-    [lex-divider :next (conjv value chr)]
-
-    [lex-start :token [:divider]]))
-
-(defn lex-start [value ^Character chr]
-  (cond (Character/isLetter chr)
-        (lex-word value chr)
-
-        (Character/isDigit chr)
-        (lex-number value chr)
-
-        (= \- chr)
-        (lex-divider value chr)
-
-        (Character/isWhitespace chr)
-        [lex-start :next]))
-
-(declare parse-record-field parse-record-value)
-
-(defn parse-begin-record [stack [tok-type :as tok]]
-  (case tok-type
-    :word
-    (parse-record-field (cons {} stack) tok)
-    :eof
-    [:eof]
-    nil))
-
-(defn parse-record [[fields :as stack] [tok-type :as tok]]
-  (case tok-type
-    :word
-    (parse-record-field stack tok)
-    :divider
-    [:emit parse-begin-record (cons {:type :record :fields fields} stack)]
-    nil))
-
-(defn parse-record-field [stack [tok-type tok-value]]
-  (if (= :word tok-type)
-    [:next parse-record-value (cons tok-value stack)]))
-
-(defn parse-record-value [[field fields & stack] [tok-type tok-value]]
-  (if (#{:word :number} tok-type)
-    [:next parse-record (cons (assoc fields field tok-value) stack)]))
-
-(defn lex-and-parse []
-  (comp
-    (lex lex-start)
-    (parse parse-record)))
-
 (defn process-file [xform filename]
   (with-open [stream (io/reader filename)]
     (let [reader (LineNumberReader. stream)]
       (.setLineNumber reader 1)
       (readuction reader xform conj))))
-
-(def lex-file (partial process-file (lex lex-start)))
-(def parse-file (partial process-file (lex-and-parse)))
