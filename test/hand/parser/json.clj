@@ -24,6 +24,10 @@
         :otherwise
         (lex-punctuation value chr)))
 
+(defn lex-keyword [value ^Character chr]
+  (cond (Character/isLetter chr) [lex-keyword :next (conjv value chr)]
+        :else [lex-start :token-end [:keyword (apply str value)]]))
+
 (defn lex-punctuation [value ^Character chr]
   (case chr
     \{ [lex-start :token [:open-curly]]
@@ -41,7 +45,7 @@
 (defn lex-string [value ^Character chr]
   (cond (= \\ chr) [lex-escape :next value]
         (= \" chr) [lex-start :token [:string (apply str value)]]
-        (> (int chr) 32) [lex-string :next (conj value chr)]))
+        (>= (int chr) 32) [lex-string :next (conj value chr)]))
 
 (defn lex-escape [value ^Character chr]
   ; TODO: use proper whitelist and allow \uXXXX
@@ -56,6 +60,7 @@
         (Character/isDigit chr) [lex-number :next [chr]]))
 
 (defn lex-number [value ^Character chr]
+  ; TODO: handle exponential format
   (cond (Character/isDigit chr) [lex-number :next (conj value chr)]
         (= \. chr) (lex-decimal-point value chr)
         :else [lex-start :token-end (finish-number value)]))
@@ -64,36 +69,16 @@
   (if (= \. chr)
     [lex-decimal :next (conj value chr)]))
 
-(declare parse-record-field parse-record-value)
+(defn lex-decimal [value ^Character chr]
+  (cond (Character/isDigit chr) [lex-decimal :next (conj value chr)]
+        :else [lex-start :token-end (finish-number value)]))
 
-(defn parse-begin-record [stack [tok-type :as tok]]
-  (case tok-type
-    :word
-    (parse-record-field (cons {} stack) tok)
-    :eof
-    [:eof]
-    nil))
-
-(defn parse-record [[fields :as stack] [tok-type :as tok]]
-  (case tok-type
-    :word
-    (parse-record-field stack tok)
-    :divider
-    [:emit parse-begin-record (cons {:type :record :fields fields} stack)]
-    nil))
-
-(defn parse-record-field [stack [tok-type tok-value]]
-  (if (= :word tok-type)
-    [:next parse-record-value (cons tok-value stack)]))
-
-(defn parse-record-value [[field fields & stack] [tok-type tok-value]]
-  (if (#{:word :number} tok-type)
-    [:next parse-record (cons (assoc fields field tok-value) stack)]))
+(defn parse-json [])
 
 (defn lex-and-parse []
   (comp
     (lex lex-start)
-    (parse parse-record)))
+    (parse parse-json)))
 
 (def lex-file (partial process-file (lex lex-start)))
 (def parse-file (partial process-file (lex-and-parse)))
